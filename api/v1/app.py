@@ -1,34 +1,72 @@
 #!/usr/bin/python3
 """
-Importing necessary libraries and modules
-and creating the Flask web application
+Flask App that integrates with AirBnB static HTML Template
 """
-from flask import Flask, jsonify
-from flask_cors import CORS
+from api.v1.views import app_views
+from flask import Flask, jsonify, make_response, render_template, url_for
+from flask_cors import CORS, cross_origin
+from flasgger import Swagger
 from models import storage
 import os
-from api.v1.views import app_views
+from werkzeug.exceptions import HTTPException
+
 
 app = Flask(__name__)
+swagger = Swagger(app)
+
+
+app.url_map.strict_slashes = False
+
+
+host = os.getenv('HBNB_API_HOST', '0.0.0.0')
+port = os.getenv('HBNB_API_PORT', 5000)
+
+cors = CORS(app, resources={r"/api/v1/*": {"origins": "*"}})
+
 app.register_blueprint(app_views)
-CORS(app, resources={r"/*": {"origins": "0.0.0.0"}})
 
 
 @app.teardown_appcontext
-def close(exception):
-    """Teardown function to close the storage
-    after the application context is destroyed"""
+def teardown_db(exception):
+
     storage.close()
 
 
 @app.errorhandler(404)
-def error404(error):
-    """This code defines a 404 error handler for a Flask application."""
-    errorjson = {"error": "Not found"}
-    return jsonify(errorjson), 404
+def handle_404(exception):
+
+    code = exception.__str__().split()[0]
+    description = exception.description
+    message = {'error': description}
+    return make_response(jsonify(message), code)
+
+
+@app.errorhandler(400)
+def handle_404(exception):
+    code = exception.__str__().split()[0]
+    description = exception.description
+    message = {'error': description}
+    return make_response(jsonify(message), code)
+
+
+@app.errorhandler(Exception)
+def global_error_handler(err):
+    if isinstance(err, HTTPException):
+        if type(err).__name__ == 'NotFound':
+            err.description = "Not found"
+        message = {'error': err.description}
+        code = err.code
+    else:
+        message = {'error': err}
+        code = 500
+    return make_response(jsonify(message), code)
+
+
+def setup_global_errors():
+    for cls in HTTPException.__subclasses__():
+        app.register_error_handler(cls, global_error_handler)
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("HBNB_API_PORT", 5000))
-    host = os.environ.get("HBNB_API_HOST", "0.0.0.0")
-    app.run(host=host, port=port, threaded=True)
+    setup_global_errors()
+    app.run(host=host, port=port)
